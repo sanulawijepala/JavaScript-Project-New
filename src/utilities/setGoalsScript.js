@@ -1,16 +1,31 @@
 // Savings Goals Functionality
 let goals = JSON.parse(localStorage.getItem("goals")) || [];
 
-// Add new goal
+// Add new goal with better validation
 function addNewGoal() {
-  const name = document.getElementById("goal-name").value;
+  const name = document.getElementById("goal-name").value.trim();
   const targetAmount = parseFloat(document.getElementById("goal-amount").value);
   const targetDate = document.getElementById("goal-date").value;
-  const initialAmount =
-    parseFloat(document.getElementById("initial-amount").value) || 0;
+  const initialAmount = parseFloat(document.getElementById("initial-amount").value) || 0;
 
-  if (!name || !targetAmount || !targetDate) {
-    alert("Please fill in all required fields");
+  // Validate inputs
+  if (!name || name.length < 3) {
+    showAlert("Please enter a valid goal name (at least 3 characters)");
+    return;
+  }
+
+  if (isNaN(targetAmount) || targetAmount <= 0) {
+    showAlert("Please enter a valid target amount (greater than 0)");
+    return;
+  }
+
+  if (!targetDate || new Date(targetDate) < new Date()) {
+    showAlert("Please select a valid future date");
+    return;
+  }
+
+  if (isNaN(initialAmount) || initialAmount < 0) {
+    showAlert("Initial amount must be 0 or positive");
     return;
   }
 
@@ -26,6 +41,7 @@ function addNewGoal() {
   goals.push(newGoal);
   updateGoalsInLocalStorage();
   updateGoalsList();
+  showAlert("Goal added successfully!", "success");
 
   // Clear form
   document.getElementById("goal-name").value = "";
@@ -34,117 +50,115 @@ function addNewGoal() {
   document.getElementById("initial-amount").value = "0";
 }
 
-// Update goals list
-function updateGoalsList() {
-  const goalsList = document.getElementById("goals-list");
-  goalsList.innerHTML = "";
-
-  if (goals.length === 0) {
-    goalsList.innerHTML = "<p>No savings goals yet. Add one below!</p>";
-    return;
-  }
-
-  goals.forEach((goal) => {
-    const progress = (goal.currentAmount / goal.targetAmount) * 100;
-    const remaining = goal.targetAmount - goal.currentAmount;
-    const targetDate = new Date(goal.targetDate);
-    const daysLeft = Math.ceil(
-      (targetDate - new Date()) / (1000 * 60 * 60 * 24)
-    );
-
-    const goalElement = document.createElement("div");
-    goalElement.classList.add("goal-item");
-    goalElement.innerHTML = `
-      <div class="goal-header">
-        <div class="goal-title">${goal.name}</div>
-        <div class="goal-actions">
-          <button class="edit-goal" onclick="editGoal(${goal.id})">Edit</button>
-          <button class="delete-goal" onclick="deleteGoal(${
-            goal.id
-          })">Delete</button>
-          <button class="contribute" onclick="contributeToGoal(${
-            goal.id
-          })">Add Funds</button>
-        </div>
-      </div>
-      <div class="goal-details">
-        <div>Target: Rs. ${goal.targetAmount.toFixed(
-          2
-        )} | Current: Rs. ${goal.currentAmount.toFixed(2)}</div>
-        <div>Remaining: Rs. ${remaining.toFixed(2)} | Target Date: ${formatDate(
-      goal.targetDate
-    )}</div>
-        <div>${
-          daysLeft > 0 ? `${daysLeft} days remaining` : "Goal date passed"
-        }</div>
-      </div>
-      <div class="goal-progress">
-        <div class="progress-bar" style="width: ${progress}%"></div>
-      </div>
-      <div class="goal-stats">
-        <span>${progress.toFixed(1)}% complete</span>
-        <span>${
-          daysLeft > 0
-            ? `Need Rs. ${(remaining / daysLeft).toFixed(2)}/day to reach goal`
-            : "Goal date passed"
-        }</span>
-      </div>
-    `;
-
-    goalsList.appendChild(goalElement);
-  });
-}
-
-// Delete goal
-function deleteGoal(id) {
-  if (confirm("Are you sure you want to delete this goal?")) {
-    goals = goals.filter((goal) => goal.id !== id);
-    updateGoalsInLocalStorage();
-    updateGoalsList();
-  }
-}
-
-// Edit goal modal
-function editGoal(id) {
-  const goal = goals.find((g) => g.id === id);
-  if (!goal) return;
-
-  // For simplicity, use prompt - in a real app, use a modal
-  const newAmount = prompt("Update current amount:", goal.currentAmount);
-  if (newAmount !== null) {
-    goal.currentAmount = parseFloat(newAmount);
-    updateGoalsInLocalStorage();
-    updateGoalsList();
-  }
-}
-
-// Contribute to goal
+// Improved goal contribution with transaction integration
 function contributeToGoal(id) {
   const goal = goals.find((g) => g.id === id);
   if (!goal) return;
 
-  const contribution = parseFloat(prompt("Enter contribution amount:"));
-  if (!isNaN(contribution) && contribution > 0) {
-    goal.currentAmount += contribution;
-    updateGoalsInLocalStorage();
-    updateGoalsList();
+  // Create modal instead of using prompt
+  const amount = parseFloat(prompt("Enter contribution amount:"));
+  
+  if (isNaN(amount) || amount <= 0) {
+    showAlert("Please enter a valid positive amount");
+    return;
   }
+
+  // Check if enough balance exists
+  const transactions = JSON.parse(localStorage.getItem("transactions")) || [];
+  const balance = transactions.reduce((acc, t) => acc + t.amount, 0);
+  
+  if (amount > balance) {
+    showAlert(`Insufficient funds. Your current balance is Rs. ${balance.toFixed(2)}`);
+    return;
+  }
+
+  // Add transaction
+  const newTransaction = {
+    id: Date.now(),
+    description: `Contribution to ${goal.name}`,
+    amount: -amount, // Negative because it's an expense
+    category: "Savings",
+    date: new Date().toISOString().split('T')[0],
+  };
+
+  transactions.push(newTransaction);
+  localStorage.setItem("transactions", JSON.stringify(transactions));
+
+  // Update goal
+  goal.currentAmount += amount;
+  updateGoalsInLocalStorage();
+  updateGoalsList();
+  
+  // Update UI
+  updateValues(
+    document.getElementById("balance"),
+    document.getElementById("income"),
+    document.getElementById("expense")
+  );
+  
+  showAlert(`Successfully contributed Rs. ${amount.toFixed(2)} to ${goal.name}`, "success");
 }
 
-// Helper function to format date
-function formatDate(dateString) {
-  const options = { year: "numeric", month: "short", day: "numeric" };
-  return new Date(dateString).toLocaleDateString(undefined, options);
+// Improved edit functionality
+function editGoal(id) {
+  const goal = goals.find((g) => g.id === id);
+  if (!goal) return;
+
+  // In a real app, replace with modal
+  const newName = prompt("Edit goal name:", goal.name);
+  if (newName !== null && newName.trim() !== "") {
+    goal.name = newName.trim();
+  }
+
+  const newTarget = prompt("Edit target amount:", goal.targetAmount);
+  if (newTarget !== null && !isNaN(newTarget)) {
+    goal.targetAmount = parseFloat(newTarget);
+  }
+
+  const newDate = prompt("Edit target date (YYYY-MM-DD):", goal.targetDate);
+  if (newDate !== null && new Date(newDate) > new Date()) {
+    goal.targetDate = newDate;
+  }
+
+  updateGoalsInLocalStorage();
+  updateGoalsList();
 }
 
-// Update local storage with goals
-function updateGoalsInLocalStorage() {
-  localStorage.setItem("goals", JSON.stringify(goals));
+// Improved progress calculation
+function calculateGoalProgress(goal) {
+  const progress = (goal.currentAmount / goal.targetAmount) * 100;
+  const remaining = goal.targetAmount - goal.currentAmount;
+  const targetDate = new Date(goal.targetDate);
+  const daysLeft = Math.ceil((targetDate - new Date()) / (1000 * 60 * 60 * 24));
+
+  return {
+    progress: Math.min(100, progress), // Cap at 100%
+    remaining: Math.max(0, remaining), // Don't show negative
+    daysLeft: daysLeft > 0 ? daysLeft : 0, // Minimum 0
+    dailyNeeded: daysLeft > 0 ? remaining / daysLeft : 0,
+    isCompleted: goal.currentAmount >= goal.targetAmount,
+    isOverdue: daysLeft < 0 && !(goal.currentAmount >= goal.targetAmount)
+  };
 }
 
-const addGoalBtn = document.getElementById("add-goal-btn");
-addGoalBtn.addEventListener("click", addNewGoal);
+// Helper function to show alerts
+function showAlert(message, type = "error") {
+  const alertDiv = document.createElement("div");
+  alertDiv.className = `alert ${type}`;
+  alertDiv.textContent = message;
+  document.body.appendChild(alertDiv);
+  
+  setTimeout(() => {
+    alertDiv.remove();
+  }, 3000);
+}
 
+// Initialize
 document.addEventListener("DOMContentLoaded", function () {
   updateGoalsList();
+  
+  const addGoalBtn = document.getElementById("add-goal-btn");
+  if (addGoalBtn) {
+    addGoalBtn.addEventListener("click", addNewGoal);
+  }
 });
